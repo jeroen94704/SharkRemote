@@ -8,13 +8,9 @@
 // May 2010, Andras Tucsni, http://opensource.org/licenses/mit-license.php
  
 #include <EtherCard.h>
-#include <JeeLib.h>
-#include <avr/eeprom.h>
 
 #define DEBUG   1   // set to 1 to display free RAM on web page
 #define SERIAL  1   // set to 1 to show incoming requests on serial port
-
-#define CONFIG_EEPROM_ADDR ((byte*) 0x10)
 
 // ethernet interface mac address - must be unique on your network
 static byte mymac[] = { 0x00, 0x04, 0xA3, 0x21, 0xCA, 0x38 };
@@ -25,46 +21,77 @@ static byte myip[] = { 192,168,0,109 };
 // gateway ip address, in case DHCP fails
 static byte gwip[] = { 192,168,0,2};
 
-// buffer for an outgoing data packet
-static byte outBuf[RF12_MAXDATA], outDest;
-static char outCount = -1;
-
-#define NUM_MESSAGES  10    // Number of messages saved in history
-#define MESSAGE_TRUNC 15    // Truncate message payload to reduce memory use
-
 static BufferFiller bfill;  // used as cursor while filling the buffer
-
-static byte next_msg;       // pointer to next rf12rcvd line
-static word msgs_rcvd;      // total number of lines received modulo 10,000
-
 byte Ethernet::buffer[1000];   // tcp/ip send and receive buffer
 
-MilliTimer sendTimer;
-char payload[] = "CMDD04XXX";
-byte needToSend;
+char okHeader[] PROGMEM = 
+    "HTTP/1.0 200 OK\r\n"
+    "Content-Type: text/html\r\n";
 
-int rxLed = 5;
-int txLed = 6;
-bool invertLed = true;
-int intensity = 0;
-
-void sendLed(bool on)
+char badRequest[] PROGMEM = 
+    "HTTP/1.0 400 Bad Request\r\n"
+    "Content-Type: text/html\r\n"
+    "\r\n"
+    "<h1>400 Bad Request</h1>";
+    
+class PinControl
 {
-  digitalWrite(txLed, (invertLed ? on : !on) ? LOW : HIGH);  
-}
+  public:
+    PinControl(int num)
+    {
+      pinNum = num;
+    }
+    
+    void setMode(int m)
+    {
+      mode = m;
+      pinMode(pinNum, mode);
+    }
+    
+    void setValue(int value)
+    {
+      switch(pinNum)
+      {
+        case 3:
+        case 5:
+        case 6:
+        case 9:
+        case 10:
+        case 11:
+          analogWrite(pinNum, value); // Implicitly set the mode to OUTPUT
+        break;
+        
+        default:
+          if(mode == OUTPUT)
+          {
+            digitalWrite(pinNum, value == 0 ? LOW : HIGH);
+          }
+        break;
+      }
+    }
+    
+    int getMode()
+    {
+      return mode;
+    }
+    
+    int getValue()
+    {
+      if(mode == INPUT || mode == INPUT_PULLUP)
+      {
+        return digitalRead(pinNum);
+      }
+    }
+    
+  private:
+    int pinNum;
+    int mode;
+    int value; 
+};
 
-void recvLed(bool on)
-{
-  digitalWrite(rxLed, (invertLed ? on : !on) ? LOW : HIGH);  
-}
+#define NUM_PINS 28
 
-void processIncoming()
-{
-  if (rf12_recvDone() && rf12_crc == 0) 
-  {
-    // @todo ignore for now
-  }
-}
+PinControl* pin[NUM_PINS];
 
 void setup()
 {
@@ -72,8 +99,6 @@ void setup()
     Serial.begin(57600);
     Serial.println("\n[etherNode]");
 #endif
-    rf12_initialize(31, RF12_868MHZ, 33);
-    
     if (ether.begin(sizeof Ethernet::buffer, mymac) == 0) 
       Serial.println( "Failed to access Ethernet controller");
     //if (!ether.dhcpSetup("Nanode"))
@@ -85,18 +110,122 @@ void setup()
 #if SERIAL
     ether.printIp("IP: ", ether.myip);
 #endif
-
-    pinMode(rxLed, OUTPUT);
-    pinMode(txLed, OUTPUT);
-    
-    sendLed(false);
-    recvLed(false);    
+  
+    for(int i=0; i<NUM_PINS; i++)
+    {
+      pin[i] = new PinControl(i);
+    }
 }
 
-char okHeader[] PROGMEM = 
-    "HTTP/1.0 200 OK\r\n"
-    "Content-Type: text/html\r\n"
-    "Pragma: no-cache\r\n";
+int getIntArg(const char* data, const char* key, int value =-1) {
+    char temp[10];
+    if (ether.findKeyVal(data, temp, sizeof(temp), key) > 0)
+        value = atoi(temp);
+    return value;
+}
+
+// Assuming a url of the form /pins/<pinnr>?... , Starting at the provided offset, extract the pin number
+int getPinNumber(const char* data, byte offset) {
+    int pin = -1;
+    int numChars = 0;
+
+    char* untilPtr = strchr(data + offset, '?');
+
+    if (untilPtr != NULL)
+    {
+      numChars = untilPtr - (data + offset);
+    }
+    else
+    {
+      untilPtr = strchr(data + offset, ' ');
+      numChars = untilPtr - (data + offset);
+    }
+
+    char temp[2];
+    strncpy(temp, data + offset, numChars);
+    pin = atoi(temp);
+    return pin;
+}
+
+void getRequest(const char* data, BufferFiller& buf)
+{
+  // Check if "pins" is followed by a '/', to ensure proper formatting
+  if (data[9] == '/')
+  {
+    // Get the pin number from the request
+    int pinNr = getPinNumber(data, 10);
+
+    if(pinNr < NUM_PINS && (pin[pinNr]->getMode() == INPUT || pin[pinNr]->getMode() == INPUT_PULLUP))
+    {
+      buf.emit_p(PSTR("$F\r\n { \"pin\": { \"nr\" : \"$D\" \"value\" :  \"$D\" } }"), okHeader, pinNr, pin[pinNr]->getValue());
+    }
+    else
+    {
+      bfill.emit_p(PSTR("$F"), badRequest);
+    }
+  }
+}
+
+void putRequest(const char* data, BufferFiller& buf)
+{
+  // Check if "pins" is followed by a '/', to ensure proper formatting
+  if (data[9] == '/')
+  {
+    #ifdef DEBUG
+    Serial.println("Found a '/' where expected");
+    #endif
+
+    // Get the pin number from the request
+    int pinNr = getPinNumber(data, 10);
+    char temp[20];
+    
+    if(pinNr < NUM_PINS)
+    {
+      #ifdef DEBUG
+      Serial.println("Processing put value request");
+      #endif
+      
+      if (pin[pinNr]->getMode() == OUTPUT && ether.findKeyVal(data+12, temp, sizeof(temp), "value") > 0)
+      {
+        int value = getIntArg(data+12, "value");
+        #ifdef DEBUG
+        Serial.print("Found value ");
+        Serial.println(value);
+        #endif
+        
+        pin[pinNr]->setValue(value);
+        bfill.emit_p(PSTR("$F\r\n <h1>200 OK</h1>"), okHeader);
+      }
+      else if (ether.findKeyVal(data+12, temp, sizeof(temp), "mode") > 0)
+      {
+        #ifdef DEBUG
+        Serial.print("Setting pin ");
+        Serial.print(pinNr);
+        Serial.print(" to mode ");
+        Serial.println(temp);
+        #endif
+        
+        if(strcmp(temp, "input") == 0)
+        {
+          pin[pinNr]->setMode(INPUT_PULLUP);
+        }
+        else if(strcmp(temp, "output") == 0)
+        {
+          pin[pinNr]->setMode(OUTPUT);
+        }       
+        
+        bfill.emit_p(PSTR("$F\r\n <h1>200 OK</h1>"), okHeader);
+      }
+      else
+      {
+        #ifdef DEBUG
+        Serial.println("Unrecognized PUT request!");
+        #endif
+        bfill.emit_p(PSTR("$F"), badRequest);
+      }    
+    }
+  }
+}
 
 void loop()
 {
@@ -112,50 +241,21 @@ void loop()
         Serial.println(data);
 #endif
         // receive buf hasn't been clobbered by reply yet
-        if (strncmp("GET /", data, 5) == 0)
-            getValue(bfill);
-        else if (strncmp("POST /", data, 6) == 0)
-            setValue(data, bfill);
-        ether.httpServerReply(bfill.position()); // send web page data
+        if (strncmp("GET /pins/", data, 10) == 0)
+        {
+          if(strchr(data, '?') == NULL)
+          {
+            getRequest(data, bfill);
+          }
+          else
+          {
+            putRequest(data, bfill);
+          }
+        }
+        else
+        {
+            bfill.emit_p(PSTR("$F"), badRequest);
+        }
+        ether.httpServerReply(bfill.position()); // send response data
     }
-
-    // RFM12 loop runner, don't report acks
-    if (rf12_recvDone() && rf12_crc == 0 && (rf12_hdr & RF12_HDR_CTL) == 0) {
-        history_rcvd[next_msg][0] = rf12_hdr;
-        for (byte i = 0; i < rf12_len; ++i)
-            if (i < MESSAGE_TRUNC) 
-                history_rcvd[next_msg][i+1] = rf12_data[i];
-        history_len[next_msg] = rf12_len < MESSAGE_TRUNC ? rf12_len+1
-                                                         : MESSAGE_TRUNC+1;
-        next_msg = (next_msg + 1) % NUM_MESSAGES;
-        msgs_rcvd = (msgs_rcvd + 1) % 10000;
-
-    }
-    
-    if (sendTimer.poll(250))
-    {
-        while (!rf12_canSend()) processIncoming();
-      
-        sendLed(true);
-#ifdef DEBUG                
-        Serial.println("Send started");
-#endif
-        sprintf(payload, "MD06255\0");
-        rf12_sendStart(0, payload, sizeof payload);
-        rf12_sendWait(0);
-
-        while (!rf12_canSend()) rf12_recvDone();
-
-        sprintf(payload, "BA01255\0");
-        rf12_sendStart(0, payload, sizeof payload);
-        rf12_sendWait(0);
-
-        while (!rf12_canSend()) rf12_recvDone();
-
-        sprintf(payload, "WD06%03d\0", intensity);
-        rf12_sendStart(0, payload, sizeof payload);
-        intensity = (intensity+64) % 255;
-
-        sendLed(false);
-   }    
 }

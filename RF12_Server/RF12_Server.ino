@@ -52,7 +52,7 @@
 
 //#define DEBUG 1 // Print debug messages over the serial line
 #define TRACE 1
-//#define RXCOMMANDS 1 // Print received commands
+#define RXCOMMANDS 1 // Print received commands
 
 #ifdef TRACE
   #define TRACEIT(num) Serial.print("trace "); Serial.println(num);
