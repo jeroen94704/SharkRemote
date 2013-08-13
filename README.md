@@ -9,5 +9,7 @@ RF12_Server
 RF12_Client
 -----------
 
+Something about the client
+
 REST interface
 --------------
