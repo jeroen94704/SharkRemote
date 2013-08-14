@@ -11,7 +11,7 @@ Some stuff about the server
 RF12_Client
 -----------
 
-Something about the client
+Something about the client, such as the design
 
 REST interface
 --------------
