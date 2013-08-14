@@ -15,3 +15,5 @@ Something about the client, such as the design
 
 REST interface
 --------------
+
+Something about the REST interface
