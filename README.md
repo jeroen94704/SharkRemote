@@ -6,8 +6,14 @@ The goal of this project is to convert an AirSwimmer (http://www.airswimmers.com
 RF12_Server
 -----------
 
+Some stuff about the server
+
 RF12_Client
 -----------
 
+Something about the client, such as the design
+
 REST interface
 --------------
+
+Something about the REST interface etc.
