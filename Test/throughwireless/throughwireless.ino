@@ -1,5 +1,10 @@
 #include <JeeLib.h>
+#include "SoftwareServo.h"
  
+// Servo stuff
+SoftwareServo servo;
+const int servoPin = 8;
+
 // Motor pins
 const int m11 = 3;
 const int m12 = 5;
@@ -7,6 +12,8 @@ const int m21 = 6;
 const int m22 = 9;
 
 int PWMval = 64;
+int desiredServoPos = 120;
+float currentServoPos = desiredServoPos;
 
 int nodeID = 1;
 
@@ -14,6 +21,8 @@ int nodeID = 1;
 void setup() 
 {    
   rf12_initialize(1, RF12_868MHZ, 33);
+
+  servo.attach(servoPin);
 }
 
 boolean parsePayload(volatile uint8_t* data, int len)
@@ -31,12 +40,15 @@ boolean parsePayload(volatile uint8_t* data, int len)
     int pinNr = atoi(pinID);
     switch(pinNr)
     {
-    // In this case, only accept writes to the motor pins to avoid messing up the other peripherals.
+    // Process writes to the motor pins and servo pin
     case m11:
     case m12:
     case m21:
     case m22:
       analogWrite(pinNr, atoi(value));
+      break;
+    case servoPin:
+      desiredServoPos = atoi(value);
       break;
     }
 #ifdef RXCOMMANDS
@@ -62,7 +74,7 @@ boolean parsePayload(volatile uint8_t* data, int len)
     pinMode(pinNr, (atoi(value) == 0) ? INPUT : OUTPUT);
 
 #ifdef RXCOMMANDS
-    Serial.print("Mode. pin = ");
+    Serial.print("Mode. pin = "); 
     Serial.print(pinID);
     Serial.print(", value = ");
     Serial.print(value);
@@ -88,4 +100,13 @@ void processIncoming()
 void loop()
 {
   processIncoming();
+
+  servo.write(currentServoPos);
+  
+  if(currentServoPos > desiredServoPos)
+    currentServoPos-=0.01;
+  if(currentServoPos < desiredServoPos)
+    currentServoPos+=0.01;
+
+  SoftwareServo::refresh();  
 }
