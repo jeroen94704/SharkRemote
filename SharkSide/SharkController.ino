@@ -1,19 +1,28 @@
 #include <JeeLib.h>
+#include "SoftwareServo.h"
  
+// Servo stuff
+SoftwareServo servo;
+const int servoPin = 8;
+
 // Motor pins
-int m11 = 3;
-int m12 = 5;
-int m21 = 6;
-int m22 = 9;
+const int m11 = 3;
+const int m12 = 5;
+const int m21 = 6;
+const int m22 = 9;
 
 int PWMval = 64;
+int desiredServoPos = 120;
+float currentServoPos = desiredServoPos;
 
 int nodeID = 1;
 
 // the setup routine runs once when you press reset:
 void setup() 
 {    
-  rf12_initialize(nodeID, RF12_868MHZ, 33);
+  rf12_initialize(1, RF12_868MHZ, 33);
+
+  servo.attach(servoPin);
 }
 
 boolean parsePayload(volatile uint8_t* data, int len)
@@ -31,24 +40,15 @@ boolean parsePayload(volatile uint8_t* data, int len)
     int pinNr = atoi(pinID);
     switch(pinNr)
     {
-    case 0:
-    case 1:
-    case 2:
-    case 4:
-    case 7:
-    case 8:
-    case 12:
-    case 13:
-      digitalWrite(pinNr, (atoi(value) == 0) ? LOW : HIGH);
-      break;  
-
-    case 3:
-    case 5:
-    case 6:
-    case 9:
-    case 10:
-    case 11:
+    // Process writes to the motor pins and servo pin
+    case m11:
+    case m12:
+    case m21:
+    case m22:
       analogWrite(pinNr, atoi(value));
+      break;
+    case servoPin:
+      desiredServoPos = atoi(value);
       break;
     }
 #ifdef RXCOMMANDS
@@ -74,7 +74,7 @@ boolean parsePayload(volatile uint8_t* data, int len)
     pinMode(pinNr, (atoi(value) == 0) ? INPUT : OUTPUT);
 
 #ifdef RXCOMMANDS
-    Serial.print("Mode. pin = ");
+    Serial.print("Mode. pin = "); 
     Serial.print(pinID);
     Serial.print(", value = ");
     Serial.print(value);
@@ -97,33 +97,16 @@ void processIncoming()
 }
 
 // the loop routine runs over and over again forever:
-void loop() 
+void loop()
 {
   processIncoming();
 
-  analogWrite(m11, 0);
-  analogWrite(m12, PWMval);
-  analogWrite(m21, 0);
-  analogWrite(m22, PWMval);
-  delay(1000);
-
-
-  analogWrite(m11, 0);
-  analogWrite(m12, 0);
-  analogWrite(m21, 0);
-  analogWrite(m22, 0);
-  delay(2000);
-
-  analogWrite(m11, PWMval);
-  analogWrite(m12, 0);
-  analogWrite(m21, PWMval);
-  analogWrite(m22, 0);
-  delay(1000);
-
-  analogWrite(m11, 0);
-  analogWrite(m12, 0);
-  analogWrite(m21, 0);
-  analogWrite(m22, 0);
-  delay(2000);
+  servo.write(currentServoPos);
   
+  if(currentServoPos > desiredServoPos)
+    currentServoPos-=0.01;
+  if(currentServoPos < desiredServoPos)
+    currentServoPos+=0.01;
+
+  SoftwareServo::refresh();  
 }
