@@ -104,9 +104,9 @@ void loop()
   servo.write(currentServoPos);
   
   if(currentServoPos > desiredServoPos)
-    currentServoPos-=0.01;
+    currentServoPos-=0.02;
   if(currentServoPos < desiredServoPos)
-    currentServoPos+=0.01;
+    currentServoPos+=0.02;
 
   SoftwareServo::refresh();  
 }

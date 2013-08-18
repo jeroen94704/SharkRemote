@@ -13,6 +13,11 @@
 
 #define PWMval  80
 
+#define propMinVal 15
+#define propMaxVal 100
+
+#define servoMinVal 30
+#define servoMaxVal 180
 
 // Pin ID's
 #define unknown 0
@@ -164,6 +169,36 @@ int getIntArg(const char* data, const char* key, int value =-1) {
     return value;
 }
 
+void processPropVal(int value, int pin1, int pin2)
+{
+  int thePin;
+  
+  if(value == 0) 
+  {            
+    sendAnalogValue(pin1, 0);
+    sendAnalogValue(pin2, 0);
+    return;
+  }
+  
+  if(value > 0)
+  {
+    thePin = pin1;
+  } 
+  else
+  {
+    value *= -1;
+    thePin = pin2;
+  }
+  
+  // Clip to 0-100
+  value = min(value, 100);
+  value = max(value, 0);
+  
+  // Remap value from 1-100 to 15-100 (which is the useful range for the props)
+  value = map(value, 1, 100, propMinVal, propMaxVal);
+  sendAnalogValue(thePin, value); 
+}
+
 void putRequest(const char* data, BufferFiller& buf)
 {
   // Check if "pins" is followed by a '/', to ensure proper formatting
@@ -175,6 +210,7 @@ void putRequest(const char* data, BufferFiller& buf)
 
     // Get the pin number from the request
     int pinId = getPinId(data, 12);
+    int thePin;
     char temp[20];
     
     if(pinId != unknown)
@@ -193,13 +229,17 @@ void putRequest(const char* data, BufferFiller& buf)
         
         switch(pinId) {
           case lprop :
-            sendAnalogValue(m11, value);
+            processPropVal(value, m11, m12);
           break;
           case rprop :
-            sendAnalogValue(m21, value);
+            processPropVal(value, m21, m22);
           break;
           case servo : 
-            sendAnalogValue(servoPin, value);
+            // Clip to 0-100
+            value = min(value, 100);
+            value = max(value, 0);
+          
+            sendAnalogValue(servoPin, map(value, 0, 100, servoMinVal, servoMaxVal));
           break;
           default:
             #ifdef DEBUG
