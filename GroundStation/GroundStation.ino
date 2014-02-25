@@ -36,7 +36,7 @@ char payload[10];
 #define API_URL "/1.1/statuses/update.json"
 
 // ethernet interface mac address, must be unique on the LAN
-byte mymac[] = { 0x74,0x69,0x69,0x2D,0x30,0x31 };
+byte mymac[] = { 0x74,0x69,0x69,0x2D,0x30,0x32 };
 
 char website[] PROGMEM = "api.supertweet.net";
 
@@ -264,6 +264,19 @@ void putRequest(const char* data, BufferFiller& buf)
 }
 
 // To test, use :  curl -i -H "Accept: application/json" -X GET http://192.168.0.110/1/pins/servo?value=180
+
+long readVcc() {
+  long result;
+  // Read 1.1V reference against AVcc
+  ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  delay(2); // Wait for Vref to settle
+  ADCSRA |= _BV(ADSC); // Convert
+  while (bit_is_set(ADCSRA,ADSC));
+  result = ADCL;
+  result |= ADCH<<8;
+  result = 1126400L / result; // Back-calculate AVcc in mV
+  return result;
+}
 
 void loop()
 {    

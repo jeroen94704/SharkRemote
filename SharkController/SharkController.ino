@@ -1,6 +1,8 @@
 #include <JeeLib.h>
 #include "SoftwareServo.h"
  
+#define RXCOMMANDS
+
 // Servo stuff
 SoftwareServo servo;
 const int servoPin = 8;
@@ -17,10 +19,27 @@ float currentServoPos = desiredServoPos;
 
 int nodeID = 1;
 
+long readVcc() 
+{
+  long result;
+  // Read 1.1V reference against AVcc
+  ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  delay(2); // Wait for Vref to settle
+  ADCSRA |= _BV(ADSC); // Convert
+  while (bit_is_set(ADCSRA,ADSC));
+  result = ADCL;
+  result |= ADCH<<8;
+  result = 1126400L / result; // Back-calculate AVcc in mV
+  return result;
+}
+
 // the setup routine runs once when you press reset:
 void setup() 
 {    
+  Serial.begin(57600); 
+  Serial.print("Initializing RF12 ... ");
   rf12_initialize(1, RF12_868MHZ, 33);
+  Serial.println("done");  
 
   servo.attach(servoPin);
 }
@@ -57,6 +76,9 @@ boolean parsePayload(volatile uint8_t* data, int len)
     Serial.print(", value = ");
     Serial.print(value);
     Serial.println(".");
+    Serial.print("Supply voltage: ");
+    Serial.print(readVcc());
+    Serial.println("[mV]");
 #endif
   }
   else if(strncmp((const char *)data, "MD", 1) == 0) // Handle Mode command. Only accept digital pins
