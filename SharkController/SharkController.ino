@@ -1,7 +1,7 @@
 #include <JeeLib.h>
 #include "SoftwareServo.h"
  
-#define RXCOMMANDS
+//#define RXCOMMANDS
 
 // Servo stuff
 SoftwareServo servo;
@@ -14,9 +14,10 @@ const int m21 = 6;
 const int m22 = 9;
 
 int PWMval = 64;
-int desiredServoPos = 120;
+int desiredServoPos = 90;
 float currentServoPos = desiredServoPos;
 
+int vccCheckCount = 0;
 int nodeID = 1;
 
 long readVcc() 
@@ -36,10 +37,14 @@ long readVcc()
 // the setup routine runs once when you press reset:
 void setup() 
 {    
+#ifdef RXCOMMANDS
   Serial.begin(57600); 
   Serial.print("Initializing RF12 ... ");
-  rf12_initialize(1, RF12_868MHZ, 33);
+#endif
+  rf12_initialize(1, RF12_433MHZ, 33);
+#ifdef RXCOMMANDS
   Serial.println("done");  
+#endif
 
   servo.attach(servoPin);
 }
@@ -106,7 +111,9 @@ boolean parsePayload(volatile uint8_t* data, int len)
   }
   else
   {
+#ifdef RXCOMMANDS    
     Serial.println("couldn't parse incoming message");
+#endif    
   }
 }
 
@@ -121,14 +128,40 @@ void processIncoming()
 // the loop routine runs over and over again forever:
 void loop()
 {
-  processIncoming();
+  // Check if the voltage is still sufficient
+  bool doProcessing = true;
+  if(vccCheckCount++ > 10000)
+  {
+    doProcessing = readVcc() > 3000;
+    vccCheckCount = 0;
+  }
 
-  servo.write(currentServoPos);
+  if(doProcessing)
+  {
+    processIncoming();
   
-  if(currentServoPos > desiredServoPos)
-    currentServoPos-=0.02;
-  if(currentServoPos < desiredServoPos)
-    currentServoPos+=0.02;
-
-  SoftwareServo::refresh();  
+    servo.write(currentServoPos);
+    
+    if(currentServoPos > desiredServoPos)
+    {
+      currentServoPos-=0.04;
+    }
+    
+    if(currentServoPos < desiredServoPos)
+    {
+      currentServoPos+=0.04;
+    }
+  
+    SoftwareServo::refresh(); 
+  }
+  else
+  {
+    // Switch everything off when voltage drops too low
+    analogWrite(m11, 0);
+    analogWrite(m12, 0);
+    analogWrite(m21, 0);
+    analogWrite(m22, 0);
+    
+    servo.detach();
+  }
 }

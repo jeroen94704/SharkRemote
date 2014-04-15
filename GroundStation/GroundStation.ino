@@ -36,13 +36,12 @@ char payload[10];
 #define API_URL "/1.1/statuses/update.json"
 
 // ethernet interface mac address, must be unique on the LAN
-byte mymac[] = { 0x74,0x69,0x69,0x2D,0x30,0x32 };
+byte mymac[] = { 0x74,0x69,0x69,0x2D,0x30,0x3 };
 
 char website[] PROGMEM = "api.supertweet.net";
 
 static BufferFiller bfill; // used as cursor while filling the buffer
 byte Ethernet::buffer[500];
-Stash stash;
 uint8_t runTime;
 
 char okHeader[] PROGMEM =
@@ -55,44 +54,11 @@ char badRequest[] PROGMEM =
     "\r\n"
     "<h1>400 Bad Request</h1>";
 
-static void sendToTwitter () {
-  // generate two fake values as payload - by using a separate stash,
-  // we can determine the size of the generated message ahead of time
-  byte sd = stash.create();
-  
-  // Construct the Twitter status message containing the IP address
-  stash.print("status=My current IP is: ");
-  for (byte i = 0; i < 4; ++i) 
-  {
-    stash.print( ether.myip[i], DEC );
-    if (i < 3)
-    stash.print('.');
-  }
-  stash.println("");
-  stash.save();
-
-  // generate the header with payload - note that the stash size is used,
-  // and that a "stash descriptor" is passed in as argument using "$H"
-  Stash::prepare(PSTR("POST /1.1/statuses/update.json HTTP/1.1" "\r\n"
-                     "Host: $F" "\r\n"
-                     "Authorization: Basic $F" "\r\n"
-                     "User-Agent: Arduino EtherCard lib" "\r\n"                        
-                     "Content-Length: $D" "\r\n"
-                     "Content-Type: application/x-www-form-urlencoded" "\r\n"
-                     "\r\n"
-                     "$H"),
-                     website, PSTR(KEY), stash.size(), sd); 
-
-  // send the packet - this also releases all stash buffers once done
-  Serial.println( "Sending IP address to twitter");
-  ether.tcpSend();
-}
-
 void setup()
 {
   Serial.begin(57600); 
   Serial.print("Initializing RF12 ... ");
-  rf12_initialize(1, RF12_868MHZ, 33);
+  rf12_initialize(1, RF12_433MHZ, 33);
   Serial.println("done");
 
   Serial.print("\nInitializing ethernet ... ");
@@ -105,13 +71,6 @@ void setup()
   Serial.println("done");
 
   ether.printIp("IP:  ", ether.myip);
-
-
-  if (!ether.dnsLookup(website))
-    Serial.println("DNS lookup failed");
-
-  // Send the current IP to twitter (@SharkTweet1)
-  sendToTwitter();
 }
 
 void sendAnalogValue(int portNum, byte value)
@@ -173,10 +132,11 @@ void processPropVal(int value, int pin1, int pin2)
 {
   int thePin;
   
+  sendAnalogValue(pin1, 0);
+  sendAnalogValue(pin2, 0);
+
   if(value == 0) 
   {            
-    sendAnalogValue(pin1, 0);
-    sendAnalogValue(pin2, 0);
     return;
   }
   
@@ -235,7 +195,7 @@ void putRequest(const char* data, BufferFiller& buf)
             processPropVal(value, m21, m22);
           break;
           case servo : 
-            // Clip to 0-100
+            // Clip to 0-90
             value = min(value, 100);
             value = max(value, 0);
           
@@ -264,19 +224,6 @@ void putRequest(const char* data, BufferFiller& buf)
 }
 
 // To test, use :  curl -i -H "Accept: application/json" -X GET http://192.168.0.110/1/pins/servo?value=180
-
-long readVcc() {
-  long result;
-  // Read 1.1V reference against AVcc
-  ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
-  delay(2); // Wait for Vref to settle
-  ADCSRA |= _BV(ADSC); // Convert
-  while (bit_is_set(ADCSRA,ADSC));
-  result = ADCL;
-  result |= ADCH<<8;
-  result = 1126400L / result; // Back-calculate AVcc in mV
-  return result;
-}
 
 void loop()
 {    
