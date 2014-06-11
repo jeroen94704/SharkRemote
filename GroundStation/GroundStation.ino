@@ -37,8 +37,7 @@ char payload[10];
 
 // ethernet interface mac address, must be unique on the LAN
 byte mymac[] = { 0x74,0x69,0x69,0x2D,0x30,0x3 };
-
-char website[] PROGMEM = "api.supertweet.net";
+byte staticip[] = {192, 168, 0, 3 };
 
 static BufferFiller bfill; // used as cursor while filling the buffer
 byte Ethernet::buffer[500];
@@ -241,6 +240,9 @@ void loop()
 #if SERIAL
         Serial.println(data);
 #endif
+        #ifdef DEBUG
+        Serial.println("Received tcp data!");
+        #endif
         // receive buf hasn't been clobbered by reply yet
         if (strncmp("GET /1/pins/", data, 12) == 0)
         {
